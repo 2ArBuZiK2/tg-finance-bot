@@ -4,6 +4,8 @@ import os
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 
+from app.handlers import router
+
 load_dotenv()
 async def main():
     bot = Bot(token=os.getenv("BOT_TOKEN"))
