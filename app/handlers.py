@@ -18,3 +18,15 @@ async def cmd_start(message: Message):
 async def add_transaction(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
     await message.answer("Выберите категорию", reply_markup=kb.get_categories_keyboard())
+
+
+@router.callback_query(F.data.startswith("categ_"), AddTransaction.choosing_category)
+async def category_selection(callback: CallbackQuery, state: FSMContext):
+    category_name = callback.data.split("_")[1]
+    await state.update_data(category=category_name)
+    await state.set_state(AddTransaction.enter_amount)
+    await callback.answer()
+    await callback.message.answer("Вы выбрали категорию. Теперь введите сумму")
+
+
+

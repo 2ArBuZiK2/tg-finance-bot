@@ -7,7 +7,7 @@ main = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Добавить ра
                                       KeyboardButton(text="Добавить доход")]],
                            resize_keyboard=True)
 
-def get_categories_keyboard():
+def get_expense_keyboard():
     keyboard = InlineKeyboardBuilder()
 
     categories = [
@@ -21,3 +21,18 @@ def get_categories_keyboard():
         keyboard.button(text=text, callback_data=callback)
 
     return keyboard.adjust(2).as_markup()
+
+def get_income_keyboard():
+    keyboard = InlineKeyboardBuilder()
+
+    categories = [
+        ("💸 Зарплата", "inc_salary"), ("💼 Фриланс", "inc_freelance"),
+        ("🎁 Подарки", "inc_gifts")
+    ]
+    for text, callback in categories:
+        keyboard.button(text=text, callback_data=callback)
+
+    return keyboard.adjust(2).as_markup()
+
+
+
