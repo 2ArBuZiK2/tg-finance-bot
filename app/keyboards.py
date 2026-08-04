@@ -22,12 +22,14 @@ def get_expense_keyboard():
 
     return keyboard.adjust(2).as_markup()
 
+
+
 def get_income_keyboard():
     keyboard = InlineKeyboardBuilder()
 
     categories = [
-        ("💸 Зарплата", "inc_salary"), ("💼 Фриланс", "inc_freelance"),
-        ("🎁 Подарки", "inc_gifts")
+        ("💸 Зарплата", "categ_salary"), ("💼 Фриланс", "categ_freelance"),
+        ("🎁 Подарки", "categ_gifts")
     ]
     for text, callback in categories:
         keyboard.button(text=text, callback_data=callback)
