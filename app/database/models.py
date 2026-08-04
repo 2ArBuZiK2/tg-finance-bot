@@ -35,7 +35,8 @@ class Transaction(Base):
     category_id: Mapped[int] = mapped_column(ForeignKey('categories.id'))
     amount: Mapped[int] = mapped_column()
     type: Mapped[str] = mapped_column(String(10))
-    date: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now())
+    date: Mapped[datetime.datetime] = mapped_column(default=datetime.datetime.now)
+
 
 async def async_main():
     async with engine.begin() as conn:

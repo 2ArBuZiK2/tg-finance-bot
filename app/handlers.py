@@ -5,7 +5,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 import app.keyboards as kb
-from app.states import AddTransaction
+from app.states import AddTransaction, AddCategory
+import app.database.requests as rq
 
 router = Router()
 
@@ -15,7 +16,7 @@ async def cmd_start(message: Message):
 
 
 @router.message(F.text == "Добавить расход")
-async def add_transaction(message: Message, state: FSMContext):
+async def add_expense(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
     await message.answer("Выберите категорию", reply_markup=kb.get_expense_keyboard())
 
@@ -34,12 +35,38 @@ async def enter_amount(message: Message, state: FSMContext):
     await state.update_data(amount=message.text)
 
 
-
-
 @router.message(F.text == "Добавить доход")
-async def add_transaction(message: Message, state: FSMContext):
+async def add_income(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
     await message.answer("Выберите категорию", reply_markup=kb.get_income_keyboard())
 
 
+@router.message(F.text == "Управление категориями")
+async def manage_categories(message: Message, state: FSMContext):
+    await state.clear()
+    await state.set_state(AddCategory.name)
+    await message.answer("Введите название новой категории")
 
+
+@router.message(AddCategory.name)
+async def add_category(message: Message, state: FSMContext):
+    await state.update_data(category=message.text)
+    await state.set_state(AddCategory.type)
+    await message.answer("Выберите тип категории:", reply_markup=kb.get_type_category())
+
+
+@router.callback_query(F.data.startswith("type_"), AddCategory.type)
+async def type_category(callback: CallbackQuery, state: FSMContext):
+    category_type = callback.data.split("_")[1]
+    data = await state.get_data()
+    name = data.get("category")
+
+    result = await rq.add_category(tg_id=callback.from_user.id, name=name, type=category_type)
+
+    if result:
+        await callback.message.answer(f"✅ Категория '{name}' добавлена!")
+    else:
+        await callback.message.answer(f"⚠️ Категория '{name}' уже существует или произошла ошибка.")
+
+    await state.clear()
+    await callback.answer()
