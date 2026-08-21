@@ -2,38 +2,31 @@ from aiogram.types import (ReplyKeyboardMarkup, KeyboardButton,
                            InlineKeyboardButton, InlineKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.database.requests import get_categories_by_user_and_type
+
 
 main = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Добавить расход"),
                                       KeyboardButton(text="Добавить доход")],
                            [KeyboardButton(text="Управление категориями")]],
                            resize_keyboard=True)
 
-def get_expense_keyboard():
+async def get_expense_keyboard(tg_id: int):
     keyboard = InlineKeyboardBuilder()
 
-    categories = [
-        ("🍔 Еда", "categ_food"),
-        ("🚗 Транспорт", "categ_transport"),
-        ("🏠 Жилье", "categ_house"),
-        ("🎬 Отдых", "categ_fun")
-    ]
-
-    for text, callback in categories:
-        keyboard.button(text=text, callback_data=callback)
+    categories = await get_categories_by_user_and_type(tg_id, 'expense')
+    for cat in categories:
+        keyboard.button(text=cat.name, callback_data=f'categ_{cat.id}')
 
     return keyboard.adjust(2).as_markup()
 
 
 
-def get_income_keyboard():
+async def get_income_keyboard(tg_id: int):
     keyboard = InlineKeyboardBuilder()
 
-    categories = [
-        ("💸 Зарплата", "categ_salary"), ("💼 Фриланс", "categ_freelance"),
-        ("🎁 Подарки", "categ_gifts")
-    ]
-    for text, callback in categories:
-        keyboard.button(text=text, callback_data=callback)
+    categories = await get_categories_by_user_and_type(tg_id, 'income')
+    for cat in categories:
+        keyboard.button(text=cat.name, callback_data=f'categ_{cat.id}')
 
     return keyboard.adjust(2).as_markup()
 
