@@ -12,19 +12,20 @@ router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    await rq.set_user(message.from_user.id)
     await message.answer("Привет, я твой помощник по финансам!", reply_markup=kb.main)
 
 
 @router.message(F.text == "Добавить расход")
 async def add_expense(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
-    await message.answer("Выберите категорию", reply_markup=kb.get_expense_keyboard())
+    await message.answer("Выберите категорию", reply_markup=await kb.get_expense_keyboard(message.from_user.id))
 
 
 @router.callback_query(F.data.startswith("categ_"), AddTransaction.choosing_category)
 async def category_selection(callback: CallbackQuery, state: FSMContext):
-    category_name = callback.data.split("_")[1]
-    await state.update_data(category=category_name)
+    category_id = int(callback.data.split("_")[1])
+    await state.update_data(category_id=category_id)
     await state.set_state(AddTransaction.enter_amount)
     await callback.answer()
     await callback.message.answer("Вы выбрали категорию. Теперь введите сумму")
@@ -38,7 +39,7 @@ async def enter_amount(message: Message, state: FSMContext):
 @router.message(F.text == "Добавить доход")
 async def add_income(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
-    await message.answer("Выберите категорию", reply_markup=kb.get_income_keyboard())
+    await message.answer("Выберите категорию", reply_markup=await kb.get_income_keyboard(message.from_user.id))
 
 
 @router.message(F.text == "Управление категориями")

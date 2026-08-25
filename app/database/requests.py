@@ -43,10 +43,10 @@ async def get_categories_by_user_and_type(tg_id: int, category_type: str):
         if not user:
             return []
 
-    result = await session.scalars(
-        select(Category).where(
-            Category.user_id == user.id,
-            Category.type == category_type
+        result = await session.scalars(
+            select(Category).where(
+                Category.user_id == user.id,
+                Category.type == category_type
+            )
         )
-    )
-    return result.all()
+        return result.all()
