@@ -14,7 +14,6 @@ async def set_user(tg_id):
 async def add_category(tg_id: int, name: str, type: str):
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
-
         if not user:
             return None
 
@@ -36,6 +35,31 @@ async def add_category(tg_id: int, name: str, type: str):
         session.add(new_category)
         await session.commit()
         return new_category
+
+
+async def add_transaction(tg_id: int, category_id: int, amount: int, type: str):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return None
+
+        category = await session.scalar(
+            select(Category).where(
+                Category.user_id == user.id,
+                Category.id == category_id
+            )
+        )
+        if not category:
+            return None
+        new_transaction = Transaction(
+            user_id=user.id,
+            category_id=category_id,
+            amount=amount,
+            type=type
+        )
+        session.add(new_transaction)
+        await session.commit()
+        return new_transaction
 
 async def get_categories_by_user_and_type(tg_id: int, category_type: str):
     async with async_session() as session:
