@@ -19,6 +19,7 @@ async def cmd_start(message: Message):
 @router.message(F.text == "Добавить расход")
 async def add_expense(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
+    await state.update_data(transaction_type='expense')
     await message.answer("Выберите категорию", reply_markup=await kb.get_expense_keyboard(message.from_user.id))
 
 
@@ -33,12 +34,21 @@ async def category_selection(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddTransaction.enter_amount)
 async def enter_amount(message: Message, state: FSMContext):
+    try:
+        amount = int(message.text)
+        if amount <= 0:
+            await message.answer("Сумма должна быть положительным числом")
+            return
+    except ValueError:
+        await message.answer("Пожалуйста, введите целое число. Попробуйте еще раз")
+        return
     await state.update_data(amount=message.text)
 
 
 @router.message(F.text == "Добавить доход")
 async def add_income(message: Message, state: FSMContext):
     await state.set_state(AddTransaction.choosing_category)
+    await state.update_data(transaction_type='income')
     await message.answer("Выберите категорию", reply_markup=await kb.get_income_keyboard(message.from_user.id))
 
 
