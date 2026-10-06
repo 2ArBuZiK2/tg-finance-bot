@@ -7,7 +7,8 @@ from app.database.requests import get_categories_by_user_and_type
 
 main = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Добавить расход"),
                                       KeyboardButton(text="Добавить доход")],
-                           [KeyboardButton(text="Управление категориями")]],
+                           [KeyboardButton(text="Управление категориями"),
+                            KeyboardButton(text="Статистика")]],
                            resize_keyboard=True)
 
 async def get_expense_keyboard(tg_id: int):
@@ -39,6 +40,19 @@ def get_type_category():
     for text, callback in categories:
         keyboard.button(text=text, callback_data=callback)
 
+    return keyboard.adjust(2).as_markup()
+
+
+def get_period_keyboard():
+    keyboard = InlineKeyboardBuilder()
+    periods = [
+        ("Сегодня", "period_today"),
+        ("За неделю", "period_week"),
+        ("За месяц", "period_month"),
+        ("Все время", "period_all")
+    ]
+    for text, callback in periods:
+        keyboard.button(text=text, callback_data=callback)
     return keyboard.adjust(2).as_markup()
 
 
