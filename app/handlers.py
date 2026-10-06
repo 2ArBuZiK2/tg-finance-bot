@@ -37,12 +37,33 @@ async def enter_amount(message: Message, state: FSMContext):
     try:
         amount = int(message.text)
         if amount <= 0:
-            await message.answer("Сумма должна быть положительным числом")
+            await message.answer("Сумма должна быть положительным числом. Попробуйте снова.")
             return
     except ValueError:
         await message.answer("Пожалуйста, введите целое число. Попробуйте еще раз")
         return
-    await state.update_data(amount=message.text)
+    data = await state.get_data()
+    category_id = data.get("category_id")
+    transaction_type = data.get("transaction_type")
+
+    if not category_id or not transaction_type:
+        await message.answer("Что-то пошло не так. Попробуйте заново.")
+        await state.clear()
+        return
+
+    result = await rq.add_transaction(
+        tg_id=message.from_user.id,
+        category_id=category_id,
+        amount=amount,
+        type=transaction_type
+    )
+
+    if result:
+        await message.answer(f"Транзакция {amount} успешно добавлена!", reply_markup=kb.main)
+    else:
+        await message.answer("Не удалось сохранить транзакцию(")
+
+    await state.clear()
 
 
 @router.message(F.text == "Добавить доход")
