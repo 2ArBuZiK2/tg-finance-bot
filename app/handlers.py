@@ -102,3 +102,10 @@ async def type_category(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
     await callback.answer()
+
+
+@router.message(F.text == "Статистика")
+async def stats(message: Message):
+    await message.answer("Выберите период:", reply_markup=kb.get_period_keyboard())
+
+
