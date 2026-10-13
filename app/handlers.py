@@ -109,3 +109,27 @@ async def stats(message: Message):
     await message.answer("Выберите период:", reply_markup=kb.get_period_keyboard())
 
 
+@router.callback_query(F.data.startswith("period_"))
+async def period(callback: CallbackQuery):
+    period = callback.data.split("_")[1]
+    income, expense = await rq.get_stats(callback.from_user.id, period)
+    total = income - expense
+
+    period_names = {
+        'today': 'сегодня',
+        'week': 'неделю',
+        'month': 'месяц',
+        'all': 'всё время',
+    }
+
+    text = (
+        f"📊 Статистика за {period_names.get(period, 'период')}\n\n"
+        f"💰 Доходы: {income} руб.\n"
+        f"💸 Расходы: {expense} руб.\n"
+        f"📈 Итог: {total:+} руб."
+    )
+
+    await callback.message.answer(text)
+    await callback.answer()
+
+
