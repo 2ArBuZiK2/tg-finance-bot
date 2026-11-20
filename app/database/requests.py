@@ -227,6 +227,81 @@ async def add_transaction(
         return transaction
 
 
+async def get_transactions(
+    tg_id: int,
+    limit: int = 10,
+    offset: int = 0,
+) -> list[tuple[Transaction, Category]]:
+    limit = max(1, min(limit, 50))
+    offset = max(0, offset)
+
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return []
+
+        rows = await session.execute(
+            select(Transaction, Category)
+            .join(Category, Transaction.category_id == Category.id)
+            .where(Transaction.user_id == user.id)
+            .order_by(Transaction.date.desc(), Transaction.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def count_transactions(tg_id: int) -> int:
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return 0
+
+        count = await session.scalar(
+            select(func.count(Transaction.id)).where(Transaction.user_id == user.id)
+        )
+        return count or 0
+
+
+async def get_transaction(
+    tg_id: int,
+    transaction_id: int,
+) -> tuple[Transaction, Category] | None:
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(Transaction, Category)
+                .join(Category, Transaction.category_id == Category.id)
+                .join(User, Transaction.user_id == User.id)
+                .where(
+                    User.tg_id == tg_id,
+                    Transaction.id == transaction_id,
+                )
+            )
+        ).first()
+        return tuple(row) if row else None
+
+
+async def delete_transaction(tg_id: int, transaction_id: int) -> bool:
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return False
+
+        transaction = await session.scalar(
+            select(Transaction).where(
+                Transaction.id == transaction_id,
+                Transaction.user_id == user.id,
+            )
+        )
+        if not transaction:
+            return False
+
+        await session.delete(transaction)
+        await session.commit()
+        return True
+
+
 async def get_categories_by_user_and_type(tg_id: int, category_type: str) -> list[Category]:
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
@@ -292,3 +367,32 @@ async def get_stats(tg_id: int, period: str) -> tuple[Decimal, Decimal]:
         }
 
         return totals.get("income", ZERO), totals.get("expense", ZERO)
+
+
+async def get_category_stats(
+    tg_id: int,
+    period: str,
+) -> list[tuple[str, str, Decimal]]:
+    """Возвращает (имя категории, тип, сумма) за период, по убыванию суммы."""
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return []
+
+        start = _period_start(period)
+
+        query = (
+            select(Category.name, Category.type, func.sum(Transaction.amount))
+            .join(Category, Transaction.category_id == Category.id)
+            .where(Transaction.user_id == user.id)
+            .group_by(Category.id)
+            .order_by(func.sum(Transaction.amount).desc())
+        )
+        if start is not None:
+            query = query.where(Transaction.date >= start)
+
+        rows = (await session.execute(query)).all()
+        return [
+            (name, category_type, Decimal(str(total or 0)).quantize(TWO_PLACES))
+            for name, category_type, total in rows
+        ]

@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import app.database.requests as rq
 import app.keyboards as kb
+from app.database.models import Category
 from app.states import AddCategory, AddTransaction
 from app.utils import MAX_AMOUNT, MAX_CATEGORY_NAME, format_money, parse_amount
 
@@ -13,6 +14,8 @@ router = Router()
 
 EXPENSE = "expense"
 INCOME = "income"
+
+HISTORY_PAGE = 10
 
 PERIOD_NAMES = {
     "today": "сегодня",
@@ -98,6 +101,47 @@ async def _categories_view(tg_id: int) -> tuple[str, InlineKeyboardMarkup]:
     return text, kb.categories_management_keyboard(items, missing_defaults)
 
 
+def _parse_tx_callback(data: str | None, prefix: str) -> tuple[int, int] | None:
+    """Разбирает callback вида deltx_ok_42_10 → (42, 10)."""
+    if not data:
+        return None
+    transaction_part, _, offset_part = data.removeprefix(prefix).partition("_")
+    try:
+        return int(transaction_part), int(offset_part or 0)
+    except ValueError:
+        return None
+
+
+def _transaction_line(index: int, transaction, category: Category) -> str:
+    sign = "−" if transaction.type == EXPENSE else "+"
+    return (
+        f"{index}. {transaction.date:%d.%m.%Y} · {category.name} · "
+        f"{sign}{format_money(transaction.amount)} ₽"
+    )
+
+
+async def _history_view(tg_id: int, offset: int) -> tuple[str, InlineKeyboardMarkup]:
+    total = await rq.count_transactions(tg_id)
+
+    if total == 0:
+        return (
+            "🧾 Операций пока нет. Добавьте расход или доход — они появятся здесь.",
+            kb.history_keyboard([], 0, 0, HISTORY_PAGE),
+        )
+
+    last_page_offset = ((total - 1) // HISTORY_PAGE) * HISTORY_PAGE
+    offset = max(0, min(offset, last_page_offset))
+
+    items = await rq.get_transactions(tg_id, HISTORY_PAGE, offset)
+
+    lines = [f"🧾 Операции: {total}", ""]
+    for index, (transaction, category) in enumerate(items, start=offset + 1):
+        lines.append(_transaction_line(index, transaction, category))
+    lines += ["", "Нажмите 🗑 под номером, чтобы удалить операцию."]
+
+    return "\n".join(lines), kb.history_keyboard(items, offset, total, HISTORY_PAGE)
+
+
 # --- Команды и меню ---------------------------------------------------------
 # Обработчики меню намеренно объявлены до обработчиков состояний: кнопки
 # нижней клавиатуры должны работать даже во время ввода суммы или названия.
@@ -153,6 +197,13 @@ async def manage_categories(message: Message, state: FSMContext):
 async def stats(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Выберите период:", reply_markup=kb.get_period_keyboard())
+
+
+@router.message(F.text == "История")
+async def history(message: Message, state: FSMContext):
+    await state.clear()
+    text, markup = await _history_view(message.from_user.id, 0)
+    await message.answer(text, reply_markup=markup)
 
 
 async def _start_transaction(message: Message, state: FSMContext, category_type: str) -> None:
@@ -436,18 +487,108 @@ async def show_stats(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await _remove_markup(callback.message)
 
-    income, expense = await rq.get_stats(callback.from_user.id, period)
+    tg_id = callback.from_user.id
+    income, expense = await rq.get_stats(tg_id, period)
     total = income - expense
+    category_stats = await rq.get_category_stats(tg_id, period)
 
-    text = (
-        f"📊 Статистика за {PERIOD_NAMES[period]}\n\n"
-        f"💰 Доходы: {format_money(income)} ₽\n"
-        f"💸 Расходы: {format_money(expense)} ₽\n"
-        f"📈 Итог: {format_money(total, signed=True)} ₽"
-    )
+    lines = [
+        f"📊 Статистика за {PERIOD_NAMES[period]}",
+        "",
+        f"💰 Доходы: {format_money(income)} ₽",
+        f"💸 Расходы: {format_money(expense)} ₽",
+        f"📈 Итог: {format_money(total, signed=True)} ₽",
+    ]
+
+    if period != "all":
+        balance_income, balance_expense = await rq.get_stats(tg_id, "all")
+        balance = balance_income - balance_expense
+        lines += ["", f"💳 Баланс за всё время: {format_money(balance, signed=True)} ₽"]
+
+    if not category_stats:
+        lines += ["", "За этот период операций нет."]
+
+    for category_type, title in ((EXPENSE, "Расходы"), (INCOME, "Доходы")):
+        rows = [
+            (name, amount)
+            for name, row_type, amount in category_stats
+            if row_type == category_type
+        ]
+        if not rows:
+            continue
+
+        section_total = expense if category_type == EXPENSE else income
+        lines += ["", f"{title} по категориям:"]
+        for name, amount in rows:
+            percent = round(amount / section_total * 100) if section_total else 0
+            lines.append(f"• {name} — {percent}% ({format_money(amount)} ₽)")
 
     await callback.answer()
-    await callback.message.answer(text)
+    await callback.message.answer("\n".join(lines))
+
+
+# --- История операций -------------------------------------------------------
+
+
+@router.callback_query(F.data.startswith("hist_"))
+async def history_page(callback: CallbackQuery, state: FSMContext):
+    offset = _extract_id(callback.data, "hist_") or 0
+    await state.clear()
+
+    text, markup = await _history_view(callback.from_user.id, offset)
+    await _edit_message(callback.message, text, markup)
+    await callback.answer()
+
+
+# deltx_ok_ должен быть объявлен раньше deltx_.
+@router.callback_query(F.data.startswith("deltx_ok_"))
+async def confirm_delete_transaction(callback: CallbackQuery, state: FSMContext):
+    payload = _parse_tx_callback(callback.data, "deltx_ok_")
+    if payload is None:
+        await callback.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    transaction_id, offset = payload
+    deleted = await rq.delete_transaction(callback.from_user.id, transaction_id)
+    if not deleted:
+        await callback.answer("Операция уже удалена", show_alert=True)
+        return
+
+    await state.clear()
+    text, markup = await _history_view(callback.from_user.id, offset)
+    await _edit_message(callback.message, text, markup)
+    await callback.answer("Операция удалена")
+
+
+@router.callback_query(F.data.startswith("deltx_"))
+async def ask_delete_transaction(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    payload = _parse_tx_callback(callback.data, "deltx_")
+    if payload is None:
+        await callback.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    transaction_id, offset = payload
+    row = await rq.get_transaction(callback.from_user.id, transaction_id)
+    if row is None:
+        await callback.answer("Операция уже удалена", show_alert=True)
+        return
+
+    transaction, category = row
+    sign = "−" if transaction.type == EXPENSE else "+"
+    text = (
+        "Удалить операцию?\n\n"
+        f"{transaction.date:%d.%m.%Y} · {category.name} · "
+        f"{sign}{format_money(transaction.amount)} ₽"
+    )
+
+    await _edit_message(
+        callback.message,
+        text,
+        kb.confirm_delete_transaction_keyboard(transaction.id, offset),
+    )
+    await callback.answer()
 
 
 # --- Отмена и устаревшие нажатия -------------------------------------------

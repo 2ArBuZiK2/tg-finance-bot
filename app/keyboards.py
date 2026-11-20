@@ -5,14 +5,15 @@ from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                            KeyboardButton, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.database.models import Category
+from app.database.models import Category, Transaction
 
 main = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Добавить расход"),
          KeyboardButton(text="Добавить доход")],
-        [KeyboardButton(text="Управление категориями"),
+        [KeyboardButton(text="История"),
          KeyboardButton(text="Статистика")],
+        [KeyboardButton(text="Управление категориями")],
     ],
     resize_keyboard=True,
 )
@@ -85,6 +86,63 @@ def confirm_delete_category_keyboard(category_id: int) -> InlineKeyboardMarkup:
                     callback_data=f"delcat_ok_{category_id}",
                 ),
                 InlineKeyboardButton(text="↩️ Назад", callback_data="cat_manage"),
+            ]
+        ]
+    )
+
+
+def history_keyboard(
+    items: list[tuple[Transaction, Category]],
+    offset: int,
+    total: int,
+    page_size: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    for index, (transaction, _) in enumerate(items, start=offset + 1):
+        builder.button(
+            text=f"🗑 {index}",
+            callback_data=f"deltx_{transaction.id}_{offset}",
+        )
+    builder.adjust(5)
+
+    navigation = []
+    if offset > 0:
+        navigation.append(
+            InlineKeyboardButton(
+                text="⬅️ Новее",
+                callback_data=f"hist_{max(0, offset - page_size)}",
+            )
+        )
+    if offset + page_size < total:
+        navigation.append(
+            InlineKeyboardButton(
+                text=f"Ещё {page_size} ➡️",
+                callback_data=f"hist_{offset + page_size}",
+            )
+        )
+    if navigation:
+        builder.row(*navigation)
+
+    builder.row(InlineKeyboardButton(text="⬅️ В меню", callback_data="close"))
+    return builder.as_markup()
+
+
+def confirm_delete_transaction_keyboard(
+    transaction_id: int,
+    offset: int,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Удалить",
+                    callback_data=f"deltx_ok_{transaction_id}_{offset}",
+                ),
+                InlineKeyboardButton(
+                    text="↩️ Назад",
+                    callback_data=f"hist_{offset}",
+                ),
             ]
         ]
     )
