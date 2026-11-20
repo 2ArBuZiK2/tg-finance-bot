@@ -1,20 +1,52 @@
-from app.database.models import async_session
-from app.database.models import User, Category, Transaction
-from sqlalchemy import select, update, delete
-from sqlalchemy import func
-
 from datetime import datetime, timedelta
+from decimal import Decimal
 
-async def set_user(tg_id):
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from app.database.models import Category, Transaction, User, async_session
+from app.utils import (MAX_AMOUNT, MAX_CATEGORY_NAME, TWO_PLACES,
+                       parse_amount)
+
+CATEGORY_TYPES = ("expense", "income")
+ZERO = Decimal("0.00")
+
+# Эти категории создаются один раз при первом /start, чтобы бот был
+# работоспособен сразу после запуска.
+DEFAULT_CATEGORIES = {
+    "expense": ("Еда", "Транспорт", "Жильё", "Здоровье", "Развлечения", "Другое"),
+    "income": ("Зарплата", "Фриланс", "Подарки", "Другое"),
+}
+
+
+async def ensure_user(tg_id: int) -> tuple[User, bool]:
+    """Возвращает пользователя и признак того, что он создан только что."""
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if user:
+            return user, False
 
-        if not user:
-            session.add(User(tg_id=tg_id))
-            await session.commit()
+        user = User(tg_id=tg_id)
+        session.add(user)
+        await session.flush()
+
+        session.add_all(
+            Category(name=name, type=category_type, user_id=user.id)
+            for category_type, names in DEFAULT_CATEGORIES.items()
+            for name in names
+        )
+        await session.commit()
+        return user, True
 
 
-async def add_category(tg_id: int, name: str, type: str):
+async def add_category(tg_id: int, name: str, category_type: str) -> Category | None:
+    name = (name or "").strip()
+
+    if not name or len(name) > MAX_CATEGORY_NAME:
+        return None
+    if category_type not in CATEGORY_TYPES:
+        return None
+
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
@@ -24,23 +56,37 @@ async def add_category(tg_id: int, name: str, type: str):
             select(Category).where(
                 Category.user_id == user.id,
                 Category.name == name,
-                Category.type == type
+                Category.type == category_type,
             )
         )
         if existing:
             return None
 
-        new_category = Category(
-            name=name,
-            type=type,
-            user_id=user.id
-        )
-        session.add(new_category)
-        await session.commit()
-        return new_category
+        category = Category(name=name, type=category_type, user_id=user.id)
+        session.add(category)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Гонка двух одинаковых запросов: уникальный индекс не дал
+            # создать дубль.
+            await session.rollback()
+            return None
+
+        return category
 
 
-async def add_transaction(tg_id: int, category_id: int, amount: int, type: str):
+async def add_transaction(
+    tg_id: int,
+    category_id: int,
+    amount: Decimal,
+    category_type: str,
+) -> Transaction | None:
+    amount = parse_amount(str(amount))
+    if amount is None or amount <= 0 or amount > MAX_AMOUNT:
+        return None
+    if category_type not in CATEGORY_TYPES:
+        return None
+
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
@@ -49,74 +95,87 @@ async def add_transaction(tg_id: int, category_id: int, amount: int, type: str):
         category = await session.scalar(
             select(Category).where(
                 Category.user_id == user.id,
-                Category.id == category_id
+                Category.id == category_id,
             )
         )
-        if not category:
+        # Категория должна принадлежать пользователю и совпадать по типу:
+        # нельзя записать расход в доходную категорию.
+        if not category or category.type != category_type:
             return None
-        new_transaction = Transaction(
-            user_id=user.id,
-            category_id=category_id,
-            amount=amount,
-            type=type
-        )
-        session.add(new_transaction)
-        await session.commit()
-        return new_transaction
 
-async def get_categories_by_user_and_type(tg_id: int, category_type: str):
+        transaction = Transaction(
+            user_id=user.id,
+            category_id=category.id,
+            amount=amount,
+            type=category.type,
+        )
+        session.add(transaction)
+        await session.commit()
+        return transaction
+
+
+async def get_categories_by_user_and_type(tg_id: int, category_type: str) -> list[Category]:
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
             return []
 
         result = await session.scalars(
-            select(Category).where(
+            select(Category)
+            .where(
                 Category.user_id == user.id,
-                Category.type == category_type
+                Category.type == category_type,
+            )
+            .order_by(Category.id)
+        )
+        return list(result.all())
+
+
+async def get_category(tg_id: int, category_id: int) -> Category | None:
+    async with async_session() as session:
+        return await session.scalar(
+            select(Category)
+            .join(User, Category.user_id == User.id)
+            .where(
+                User.tg_id == tg_id,
+                Category.id == category_id,
             )
         )
-        return result.all()
 
 
-async def get_stats(tg_id: int, period: str):
+def _period_start(period: str) -> datetime | None:
+    now = datetime.now()
+
+    if period == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "week":
+        return now - timedelta(days=7)
+    if period == "month":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return None
+
+
+async def get_stats(tg_id: int, period: str) -> tuple[Decimal, Decimal]:
+    """Возвращает (доходы, расходы) за период."""
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.tg_id == tg_id))
         if not user:
-            return 0, 0
+            return ZERO, ZERO
 
-        now = datetime.now()
-        if period == "today":
-            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif period == "week":
-            start = now - timedelta(days=7)
-        elif period == "month":
-            start = now - timedelta(days=30)
-        else:
-            start = None
+        start = _period_start(period)
 
-        income_query = select(func.sum(Transaction.amount)).where(
-            Transaction.user_id == user.id,
-            Transaction.type == 'income'
+        query = (
+            select(Transaction.type, func.sum(Transaction.amount))
+            .where(Transaction.user_id == user.id)
+            .group_by(Transaction.type)
         )
-
         if start is not None:
-            income_query = income_query.where(Transaction.date >= start)
+            query = query.where(Transaction.date >= start)
 
-        income_sum = await session.scalar(income_query)
-        income_sum = income_sum or 0
+        rows = (await session.execute(query)).all()
+        totals = {
+            transaction_type: Decimal(str(total or 0)).quantize(TWO_PLACES)
+            for transaction_type, total in rows
+        }
 
-        expense_query = select(func.sum(Transaction.amount)).where(
-            Transaction.user_id == user.id,
-            Transaction.type == 'expense'
-        )
-
-        if start is not None:
-            expense_query = expense_query.where(Transaction.date >= start)
-
-        expense_sum = await session.scalar(expense_query)
-        expense_sum = expense_sum or 0
-
-        return income_sum, expense_sum
-
-
+        return totals.get("income", ZERO), totals.get("expense", ZERO)

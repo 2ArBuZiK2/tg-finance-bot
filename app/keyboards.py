@@ -1,59 +1,62 @@
-from aiogram.types import (ReplyKeyboardMarkup, KeyboardButton,
-                           InlineKeyboardButton, InlineKeyboardMarkup)
+from collections.abc import Iterable
+
+from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
+                           KeyboardButton, ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.database.requests import get_categories_by_user_and_type
+from app.database.models import Category
+
+main = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Добавить расход"),
+         KeyboardButton(text="Добавить доход")],
+        [KeyboardButton(text="Управление категориями"),
+         KeyboardButton(text="Статистика")],
+    ],
+    resize_keyboard=True,
+)
 
 
-main = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Добавить расход"),
-                                      KeyboardButton(text="Добавить доход")],
-                           [KeyboardButton(text="Управление категориями"),
-                            KeyboardButton(text="Статистика")]],
-                           resize_keyboard=True)
+def categories_keyboard(categories: Iterable[Category]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
 
-async def get_expense_keyboard(tg_id: int):
-    keyboard = InlineKeyboardBuilder()
+    for category in categories:
+        builder.button(text=category.name, callback_data=f"categ_{category.id}")
 
-    categories = await get_categories_by_user_and_type(tg_id, 'expense')
-    for cat in categories:
-        keyboard.button(text=cat.name, callback_data=f'categ_{cat.id}')
-
-    return keyboard.adjust(2).as_markup()
+    builder.adjust(2)
+    # Отмена всегда отдельной строкой, чтобы не смешиваться с категориями.
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
+    return builder.as_markup()
 
 
-
-async def get_income_keyboard(tg_id: int):
-    keyboard = InlineKeyboardBuilder()
-
-    categories = await get_categories_by_user_and_type(tg_id, 'income')
-    for cat in categories:
-        keyboard.button(text=cat.name, callback_data=f'categ_{cat.id}')
-
-    return keyboard.adjust(2).as_markup()
-
-def get_type_category():
-    keyboard = InlineKeyboardBuilder()
-
-    categories = [
-        ("Расход", "type_expense"), ("Доход", "type_income")
-    ]
-    for text, callback in categories:
-        keyboard.button(text=text, callback_data=callback)
-
-    return keyboard.adjust(2).as_markup()
+def cancel_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")]
+        ]
+    )
 
 
-def get_period_keyboard():
-    keyboard = InlineKeyboardBuilder()
+def get_type_category() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    builder.button(text="Расход", callback_data="type_expense")
+    builder.button(text="Доход", callback_data="type_income")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def get_period_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
     periods = [
         ("Сегодня", "period_today"),
-        ("За неделю", "period_week"),
-        ("За месяц", "period_month"),
-        ("Все время", "period_all")
+        ("7 дней", "period_week"),
+        ("Этот месяц", "period_month"),
+        ("Всё время", "period_all"),
     ]
-    for text, callback in periods:
-        keyboard.button(text=text, callback_data=callback)
-    return keyboard.adjust(2).as_markup()
+    for text, callback_data in periods:
+        builder.button(text=text, callback_data=callback_data)
 
-
-
+    builder.adjust(2)
+    return builder.as_markup()
