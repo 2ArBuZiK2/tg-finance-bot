@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import Iterable
 
 from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
@@ -33,6 +34,58 @@ def cancel_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")]
+        ]
+    )
+
+
+def categories_management_keyboard(
+    items: list[tuple[Category, int]],
+    missing_defaults: int,
+) -> InlineKeyboardMarkup:
+    """Список категорий: кнопка удаления на каждую + действия."""
+    builder = InlineKeyboardBuilder()
+
+    # Если имя встречается и в расходах, и в доходах, подписываем тип,
+    # иначе две кнопки «🗑 Другое» неразличимы.
+    duplicates = {
+        name for name, count in Counter(category.name for category, _ in items).items()
+        if count > 1
+    }
+
+    for category, _ in items:
+        label = f"🗑 {category.name}"
+        if category.name in duplicates:
+            label += " (расход)" if category.type == "expense" else " (доход)"
+        builder.button(text=label, callback_data=f"delcat_{category.id}")
+
+    builder.adjust(2)
+
+    if missing_defaults:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"➕ Базовые категории ({missing_defaults})",
+                callback_data="cat_defaults",
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(text="➕ Добавить категорию", callback_data="cat_add")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ В меню", callback_data="close")
+    )
+    return builder.as_markup()
+
+
+def confirm_delete_category_keyboard(category_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Удалить",
+                    callback_data=f"delcat_ok_{category_id}",
+                ),
+                InlineKeyboardButton(text="↩️ Назад", callback_data="cat_manage"),
+            ]
         ]
     )
 

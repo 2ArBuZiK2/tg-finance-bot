@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.database.models import Category, Transaction, User, async_session
@@ -52,14 +52,16 @@ async def add_category(tg_id: int, name: str, category_type: str) -> Category | 
         if not user:
             return None
 
-        existing = await session.scalar(
+        # Сравниваем без учёта регистра и лишних пробелов: «Еда» и «еда»
+        # для пользователя одна и та же категория. lower() в SQLite не
+        # работает с кириллицей, поэтому сравниваем в Python.
+        existing = await session.scalars(
             select(Category).where(
                 Category.user_id == user.id,
-                Category.name == name,
                 Category.type == category_type,
             )
         )
-        if existing:
+        if name.casefold() in {category.name.strip().casefold() for category in existing}:
             return None
 
         category = Category(name=name, type=category_type, user_id=user.id)
@@ -73,6 +75,117 @@ async def add_category(tg_id: int, name: str, category_type: str) -> Category | 
             return None
 
         return category
+
+
+async def get_categories_with_counts(tg_id: int) -> list[tuple[Category, int]]:
+    """Категории пользователя вместе с количеством операций в каждой."""
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return []
+
+        rows = await session.execute(
+            select(Category, func.count(Transaction.id))
+            .outerjoin(Transaction, Transaction.category_id == Category.id)
+            .where(Category.user_id == user.id)
+            .group_by(Category.id)
+            .order_by(Category.type, Category.id)
+        )
+        return list(rows.all())
+
+
+def missing_default_count(categories: list[Category]) -> int:
+    """Сколько базовых категорий у пользователя ещё нет."""
+    existing = {(category.name.strip().casefold(), category.type) for category in categories}
+    return sum(
+        1
+        for category_type, names in DEFAULT_CATEGORIES.items()
+        for name in names
+        if (name.casefold(), category_type) not in existing
+    )
+
+
+async def add_missing_defaults(tg_id: int) -> int:
+    """Добавляет недостающие базовые категории. Возвращает их количество."""
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return 0
+
+        existing = await session.scalars(
+            select(Category).where(Category.user_id == user.id)
+        )
+        existing_keys = {
+            (category.name.strip().casefold(), category.type) for category in existing
+        }
+
+        new_categories = [
+            Category(name=name, type=category_type, user_id=user.id)
+            for category_type, names in DEFAULT_CATEGORIES.items()
+            for name in names
+            if (name.casefold(), category_type) not in existing_keys
+        ]
+        if not new_categories:
+            return 0
+
+        session.add_all(new_categories)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            return 0
+
+        return len(new_categories)
+
+
+async def count_category_transactions(tg_id: int, category_id: int) -> int:
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return 0
+
+        count = await session.scalar(
+            select(func.count(Transaction.id)).where(
+                Transaction.user_id == user.id,
+                Transaction.category_id == category_id,
+            )
+        )
+        return count or 0
+
+
+async def delete_category(tg_id: int, category_id: int) -> int | None:
+    """Удаляет категорию и её операции.
+
+    Возвращает количество удалённых операций или None, если категория не
+    найдена. Операции удаляются вручную: внешний ключ старых баз не умеет
+    ON DELETE CASCADE.
+    """
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            return None
+
+        category = await session.scalar(
+            select(Category).where(
+                Category.id == category_id,
+                Category.user_id == user.id,
+            )
+        )
+        if not category:
+            return None
+
+        transactions_count = await session.scalar(
+            select(func.count(Transaction.id)).where(
+                Transaction.category_id == category.id
+            )
+        )
+
+        await session.execute(
+            delete(Transaction).where(Transaction.category_id == category.id)
+        )
+        await session.delete(category)
+        await session.commit()
+        return transactions_count or 0
 
 
 async def add_transaction(
