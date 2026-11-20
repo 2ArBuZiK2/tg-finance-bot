@@ -1,5 +1,7 @@
 # 💰 Telegram-бот для учёта личных финансов
 
+[![CI](https://github.com/2ArBuZiK2/tg-finance-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/2ArBuZiK2/tg-finance-bot/actions/workflows/ci.yml)
+
 Телеграм-бот для ведения учёта доходов и расходов с гибкой системой категорий и статистикой за периоды.
 
 ## ✨ Возможности
@@ -28,16 +30,30 @@ tg-finance-bot/
 ├── main.py
 ├── .env.example
 ├── .gitignore
+├── .dockerignore
+├── Dockerfile
+├── pyproject.toml
 ├── requirements.txt
-└── app/
-    ├── config.py
-    ├── handlers.py
-    ├── keyboards.py
-    ├── states.py
-    ├── utils.py
-    └── database/
-        ├── models.py
-        └── requests.py
+├── requirements-dev.txt
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── app/
+│   ├── config.py
+│   ├── handlers.py
+│   ├── keyboards.py
+│   ├── states.py
+│   ├── utils.py
+│   └── database/
+│       ├── models.py
+│       └── requests.py
+└── tests/
+    ├── conftest.py
+    ├── test_dialogs.py
+    ├── test_requests.py
+    ├── test_utils.py
+    └── support/
+        └── harness.py
 ```
 
 ## 🚀 Установка и запуск
@@ -73,3 +89,37 @@ tg-finance-bot/
    ```bash
    python main.py
    ```
+
+## 🧪 Тесты и линтер
+
+Установить dev-зависимости:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Запустить проверки:
+
+```bash
+pytest -q
+ruff check .
+```
+
+Тесты работают с отдельной временной базой SQLite и не трогают `db.sqlite3`. Интеграционные сценарии прогоняют настоящие хендлеры и FSM через поддельную сессию Telegram API: добавление операций, категории, историю с пагинацией, статистику, отмену и устаревшие кнопки.
+
+## ⚙️ CI
+
+GitHub Actions запускает `ruff` и `pytest` на Python 3.11 и 3.13 при каждом push в `main` и в pull request.
+
+## 🐳 Docker
+
+```bash
+docker build -t tg-finance-bot .
+docker run -d --name tg-finance-bot \
+  --env-file .env \
+  -v tg-finance-data:/data \
+  --restart unless-stopped \
+  tg-finance-bot
+```
+
+База хранится в томе `tg-finance-data` (путь `/data/db.sqlite3` задан через `DATABASE_URL`). Токен передаётся через `--env-file .env` и в образ не копируется.
