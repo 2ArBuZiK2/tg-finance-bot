@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
 
+from app import timeutils
 from app.config import DATABASE_URL
 
 # NullPool не кэширует соединения между вызовами. Для файловой SQLite это
@@ -61,7 +62,7 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     type: Mapped[str] = mapped_column(String(10))
     date: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.now
+        DateTime, default=timeutils.now
     )
 
 

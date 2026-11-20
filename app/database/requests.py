@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
+from app import timeutils
 from app.database.models import Category, Transaction, User, async_session
 from app.utils import MAX_AMOUNT, MAX_CATEGORY_NAME, TWO_PLACES, parse_amount
 
@@ -331,7 +332,7 @@ async def get_category(tg_id: int, category_id: int) -> Category | None:
 
 
 def _period_start(period: str) -> datetime | None:
-    now = datetime.now()
+    now = timeutils.now()
 
     if period == "today":
         return now.replace(hour=0, minute=0, second=0, microsecond=0)

@@ -2,9 +2,11 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from app import timeutils
 from app.database import requests as rq
 from app.database.models import Transaction, async_session
 
@@ -183,6 +185,28 @@ async def test_periods_filter_old_transactions() -> None:
     # если сегодня не 1-3 число.
     assert month in (Decimal("10.00"), Decimal("30.00"))
     assert all_time == Decimal("70.00")
+
+
+async def test_new_transaction_uses_configured_timezone(monkeypatch) -> None:
+    monkeypatch.setattr(timeutils, "TIMEZONE", "Pacific/Kiritimati")
+    await make_user()
+    food = await category_id("Еда", "expense")
+
+    transaction = await rq.add_transaction(TG_ID, food, Decimal("10"), "expense")
+    assert transaction is not None
+
+    expected = datetime.now(ZoneInfo("Pacific/Kiritimati")).replace(tzinfo=None)
+    assert abs(transaction.date - expected) < timedelta(minutes=1)
+
+
+def test_period_start_uses_configured_timezone(monkeypatch) -> None:
+    monkeypatch.setattr(timeutils, "TIMEZONE", "Pacific/Kiritimati")
+
+    start = rq._period_start("today")
+    expected = datetime.now(ZoneInfo("Pacific/Kiritimati")).replace(
+        tzinfo=None, hour=0, minute=0, second=0, microsecond=0
+    )
+    assert start == expected
 
 
 async def test_history_pagination_and_deletion() -> None:

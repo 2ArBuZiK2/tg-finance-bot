@@ -19,6 +19,8 @@ TEST_DB.unlink(missing_ok=True)
 
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB.as_posix()}"
 os.environ["BOT_TOKEN"] = "42:TEST"
+# Тесты не должны зависеть от часового пояса машины разработчика.
+os.environ.pop("TIMEZONE", None)
 
 from app.database.models import Base, engine  # noqa: E402
 from app.handlers import router  # noqa: E402
