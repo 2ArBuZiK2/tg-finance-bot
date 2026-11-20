@@ -5,8 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.database.models import Category, Transaction, User, async_session
-from app.utils import (MAX_AMOUNT, MAX_CATEGORY_NAME, TWO_PLACES,
-                       parse_amount)
+from app.utils import MAX_AMOUNT, MAX_CATEGORY_NAME, TWO_PLACES, parse_amount
 
 CATEGORY_TYPES = ("expense", "income")
 ZERO = Decimal("0.00")

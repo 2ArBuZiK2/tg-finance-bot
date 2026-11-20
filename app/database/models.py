@@ -1,15 +1,17 @@
 import datetime
 from decimal import Decimal
 
-from sqlalchemy import (BigInteger, DateTime, ForeignKey, Index, Numeric,
-                        String, event)
-from sqlalchemy.ext.asyncio import (AsyncAttrs, async_sessionmaker,
-                                    create_async_engine)
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Numeric, String, event
+from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.pool import NullPool
 
 from app.config import DATABASE_URL
 
-engine = create_async_engine(DATABASE_URL)
+# NullPool не кэширует соединения между вызовами. Для файловой SQLite это
+# дёшево, а тестам позволяет переиспользовать один движок в разных
+# event loop'ах, не получая соединение, привязанное к старому циклу.
+engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
 
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
